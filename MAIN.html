@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Campus SpaceFinder - Interactive 3D Class Locator</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'float': 'float 4s ease-in-out infinite',
+            'glow': 'glow 2s ease-in-out infinite alternate',
+          },
+          keyframes: {
+            float: {
+              '0%, 100%': { transform: 'translateY(0px)' },
+              '50%': { transform: 'translateY(-6px)' },
+            },
+            glow: {
+              '0%': { filter: 'drop-shadow(0 0 5px rgba(99, 102, 241, 0.4))' },
+              '100%': { filter: 'drop-shadow(0 0 15px rgba(99, 102, 241, 0.8))' },
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* CSS Isometric & 3D Building Floor Transforms */
+    .iso-viewport {
+      perspective: 1200px;
+      perspective-origin: 50% 30%;
+    }
+
+    .iso-floor-container {
+      transform-style: preserve-3d;
+      transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .iso-mode .iso-floor {
+      transform: rotateX(55deg) rotateZ(-35deg) translateZ(0px);
+      box-shadow: -20px 20px 30px rgba(0, 0, 0, 0.6);
+      transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .iso-mode .iso-room-card {
+      transform-style: preserve-3d;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .iso-mode .iso-room-card:hover {
+      transform: translateZ(20px) scale(1.02);
+      box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .iso-mode .iso-room-card.selected {
+      transform: translateZ(28px) scale(1.04);
+    }
+
+    /* Glassmorphism Styles */
+    .glass-card {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .glass-modal {
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    /* Dynamic Grid Grid Blueprint Pattern */
+    .blueprint-grid {
+      background-size: 30px 30px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    }
+
+    /* Ambient status shadows */
+    .glow-emerald {
+      box-shadow: 0 0 20px -3px rgba(16, 185, 129, 0.35);
+    }
+    .glow-rose {
+      box-shadow: 0 0 20px -3px rgba(244, 63, 94, 0.35);
+    }
+    .glow-amber {
+      box-shadow: 0 0 20px -3px rgba(245, 158, 11, 0.35);
+    }
+  </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans overflow-x-hidden antialiased">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 lg:px-8 py-3.5 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
+        <i class="fa-solid fa-compass-drafting text-xl animate-pulse"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-indigo-200 bg-clip-text text-transparent">
+            Campus SpaceFinder
+          </h1>
+          <span class="px-2 py-0.5 text-[10px] font-bold tracking-wider uppercase bg-brand-500/10 text-brand-400 border border-brand-500/20 rounded-md">
+            v2.5 Live
+          </span>
+        </div>
+        <p class="text-xs text-slate-400 hidden sm:block">Interactive 3D Visual Map & Live Squad Dispatch</p>
+      </div>
+    </div>
+
+    <!-- Quick Navigation & Control Toolbar -->
+    <div class="flex items-center gap-3">
+      <!-- Timetable Simulator Button -->
+      <button onclick="toggleTimetableModal()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center gap-2 transition-all hover:border-slate-500">
+        <i class="fa-solid fa-clock-rotate-left text-indigo-400"></i>
+        <span class="hidden md:inline">Simulate Timetable</span>
+      </button>
+
+      <!-- 3D Isometric View Toggle -->
+      <button id="iso-toggle-btn" onclick="toggleIsometricView()" class="px-3 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold flex items-center gap-2 transition-all">
+        <i class="fa-solid fa-cube text-indigo-400"></i>
+        <span id="iso-btn-text" class="hidden sm:inline">3D View: On</span>
+      </button>
+
+      <!-- Live Clock Badge -->
+      <div class="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 font-mono text-xs text-slate-300">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+        <span id="live-system-clock">--:--:--</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-grow container mx-auto px-4 py-6 max-w-7xl flex flex-col gap-6">
+
+    <!-- AI Natural Language Search & Smart Filter Controls -->
+    <section class="glass-card rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+      <div class="absolute -right-10 -top-10 w-40 h-40 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+      <div class="flex flex-col gap-4">
+        <!-- Search Prompt Bar -->
+        <div class="relative flex items-center">
+          <div class="absolute left-4 text-indigo-400 flex items-center gap-1.5 pointer-events-none">
+            <i class="fa-solid fa-wand-magic-sparkles text-lg animate-float"></i>
+          </div>
+          <input 
+            id="ai-search-input" 
+            type="text" 
+            placeholder='Ask AI: "Find me a free AC room on ground floor for 2 hours" or "Quiet room with AC"'
+            class="w-full bg-slate-900/90 text-slate-100 placeholder-slate-400 text-sm rounded-xl pl-12 pr-28 py-3.5 border border-slate-700/80 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 outline-none transition-all shadow-inner"
+            onkeyup="if(event.key === 'Enter') handleAISearch()"
+          />
+          <div class="absolute right-2 flex items-center gap-2">
+            <button 
+              onclick="handleAISearch()" 
+              class="px-4 py-2 rounded-lg bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-brand-500/20 transition-all flex items-center gap-1.5">
+              <span>Search</span>
+              <i class="fa-solid fa-arrow-right text-[10px]"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter Dropdown Tools -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+          <!-- Floor Filter -->
+          <div class="flex flex-col gap-1">
+            <label class="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+              <i class="fa-solid fa-layer-group text-slate-500"></i> Floor Level
+            </label>
+            <select id="filter-floor" onchange="applyFilters()" class="bg-slate-900 text-slate-200 border border-slate-700/70 rounded-xl px-3 py-2 text-xs focus:border-indigo-500 outline-none transition">
+              <option value="ALL">All Floors</option>
+              <option value="0">Ground Floor (0)</option>
+              <option value="1">1st Floor (1)</option>
+              <option value="5">5th Floor (5)</option>
+            </select>
+          </div>
+
+          <!-- AC Filter -->
+          <div class="flex flex-col gap-1">
+            <label class="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+              <i class="fa-solid fa-snowflake text-slate-500"></i> Climate / AC
+            </label>
+            <select id="filter-ac" onchange="applyFilters()" class="bg-slate-900 text-slate-200 border border-slate-700/70 rounded-xl px-3 py-2 text-xs focus:border-indigo-500 outline-none transition">
+              <option value="ALL">Any Climate</option>
+              <option value="AC">AC Rooms Only</option>
+              <option value="NON_AC">Non-AC Only</option>
+            </select>
+          </div>
+
+          <!-- Capacity Filter -->
+          <div class="flex flex-col gap-1">
+            <label class="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+              <i class="fa-solid fa-users text-slate-500"></i> Min Capacity
+            </label>
+            <select id="filter-capacity" onchange="applyFilters()" class="bg-slate-900 text-slate-200 border border-slate-700/70 rounded-xl px-3 py-2 text-xs focus:border-indigo-500 outline-none transition">
+              <option value="0">Any Capacity</option>
+              <option value="40">40+ Seats</option>
+              <option value="60">60+ Seats</option>
+              <option value="80">80+ Seats</option>
+            </select>
+          </div>
+
+          <!-- Status Filter -->
+          <div class="flex flex-col gap-1">
+            <label class="text-[11px] font-medium text-slate-400 flex items-center gap-1">
+              <i class="fa-solid fa-signal text-slate-500"></i> Availability
+            </label>
+            <select id="filter-status" onchange="applyFilters()" class="bg-slate-900 text-slate-200 border border-slate-700/70 rounded-xl px-3 py-2 text-xs focus:border-indigo-500 outline-none transition">
+              <option value="ALL">All Statuses</option>
+              <option value="FREE">Currently Available</option>
+              <option value="SOON">Free Soon (&lt;15m)</option>
+              <option value="BUSY">Occupied</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-4">
+      <!-- Floor Switcher Tabs & Status Legend -->
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
+        
+        <!-- Floor Tabs -->
+        <div class="flex items-center gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800 w-full sm:w-auto overflow-x-auto">
+          <button onclick="switchFloorTab(0)" id="tab-floor-0" class="floor-tab flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 bg-brand-600 text-white shadow-md">
+            <i class="fa-solid fa-border-all text-xs"></i>
+            Ground Floor
+          </button>
+          <button onclick="switchFloorTab(1)" id="tab-floor-1" class="floor-tab flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center gap-2">
+            <i class="fa-solid fa-layer-group text-xs"></i>
+            1st Floor
+          </button>
+          <button onclick="switchFloorTab(5)" id="tab-floor-5" class="floor-tab flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center gap-2">
+            <i class="fa-solid fa-building text-xs"></i>
+            5th Floor
+          </button>
+        </div>
+
+        <!-- Color Legend Badges -->
+        <div class="flex items-center gap-4 text-xs px-2 self-end sm:self-auto">
+          <span class="flex items-center gap-1.5 font-medium text-emerald-400">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+            Available
+          </span>
+          <span class="flex items-center gap-1.5 font-medium text-amber-400">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50"></span>
+            Ending Soon (&lt;15m)
+          </span>
+          <span class="flex items-center gap-1.5 font-medium text-rose-400">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50"></span>
+            Occupied
+          </span>
+        </div>
+      </div>
+
+      <!-- 3D Map Viewport Area -->
+      <div id="map-viewport" class="iso-viewport iso-mode min-h-[460px] bg-slate-900/40 rounded-3xl border border-slate-800 p-6 lg:p-10 blueprint-grid relative overflow-hidden flex items-center justify-center">
+        
+        <!-- Floor Title Overlay -->
+        <div class="absolute top-4 left-4 z-10 flex items-center gap-2 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-700/60 text-xs font-bold text-slate-300">
+          <i class="fa-solid fa-map-location-dot text-indigo-400"></i>
+          <span id="active-floor-label">Ground Floor Blueprint</span>
+        </div>
+
+        <!-- Map Container with 3D Isometric Switch capabilities -->
+        <div id="iso-floor-wrapper" class="iso-floor-container w-full max-w-5xl my-4">
+          <div id="iso-floor-mesh" class="iso-floor transition-all duration-500">
+            <!-- Room Nodes will be injected here via JavaScript -->
+            <div id="room-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ROOM INSPECTION MODAL / DRAWER -->
+  <div id="room-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4 z-50 transition-opacity duration-300">
+    <div class="glass-modal max-w-lg w-full rounded-3xl p-6 relative shadow-2xl border border-slate-700/60 overflow-hidden animate-float">
+      
+      <!-- Close Button -->
+      <button onclick="closeModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-800 w-9 h-9 rounded-full flex items-center justify-center transition border border-slate-700/50">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+
+      <!-- Dynamic Header / Banner -->
+      <div id="modal-banner" class="w-full h-36 rounded-2xl mb-5 flex flex-col items-center justify-center relative border shadow-inner overflow-hidden transition-all duration-300">
+        <div class="absolute inset-0 bg-gradient-to-b from-transparent to-slate-950/80 pointer-events-none"></div>
+        <span class="text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded-full bg-slate-900/60 border border-white/10 mb-1 backdrop-blur-sm" id="modal-room-type">
+          AC Classroom
+        </span>
+        <h2 class="text-4xl font-extrabold tracking-wider text-white z-10" id="modal-room-name">IST 509</h2>
+        <p class="text-xs text-slate-300 font-medium z-10 mt-1" id="modal-floor-text">Floor 5 • Wing A</p>
+      </div>
+
+      <!-- Live Ticking Countdown Section -->
+      <div class="bg-slate-900/90 rounded-2xl p-4 mb-5 border border-slate-800 text-center relative shadow-inner">
+        <div class="flex justify-between items-center mb-1 text-xs text-slate-400 font-semibold px-1">
+          <span id="modal-timer-label">TIME REMAINING FREE</span>
+          <span id="modal-until-time" class="text-slate-300 font-mono">Until 2:30 PM</span>
+        </div>
+
+        <!-- Timer Display -->
+        <div class="py-2">
+          <span class="font-mono text-4xl sm:text-5xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-indigo-300" id="modal-timer">
+            01:45:20
+          </span>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-2 p-0.5 border border-slate-700/50">
+          <div id="modal-timer-bar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-1000" style="width: 75%"></div>
+        </div>
+
+        <!-- Next Schedule Info -->
+        <div class="mt-3 text-xs text-slate-400 flex items-center justify-center gap-1.5 pt-2 border-t border-slate-800">
+          <i class="fa-regular fa-calendar-check text-indigo-400"></i>
+          <span id="modal-next-class">Next Class: 2:30 PM (CS101 Web Architecture)</span>
+        </div>
+      </div>
+
+      <!-- Amenities & Specifications Grid -->
+      <div class="grid grid-cols-4 gap-2 mb-6">
+        <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80 flex flex-col items-center justify-center text-center">
+          <i class="fa-solid fa-snowflake text-sky-400 text-sm mb-1"></i>
+          <span class="text-[10px] text-slate-400 font-medium">Climate</span>
+          <span id="modal-ac-status" class="text-xs font-bold text-slate-200">AC</span>
+        </div>
+        <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80 flex flex-col items-center justify-center text-center">
+          <i class="fa-solid fa-users text-indigo-400 text-sm mb-1"></i>
+          <span class="text-[10px] text-slate-400 font-medium">Seats</span>
+          <span id="modal-capacity" class="text-xs font-bold text-slate-200">80</span>
+        </div>
+        <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80 flex flex-col items-center justify-center text-center">
+          <i class="fa-solid fa-plug text-emerald-400 text-sm mb-1"></i>
+          <span class="text-[10px] text-slate-400 font-medium">Sockets</span>
+          <span id="modal-sockets" class="text-xs font-bold text-slate-200">Yes</span>
+        </div>
+        <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80 flex flex-col items-center justify-center text-center">
+          <i class="fa-solid fa-tv text-purple-400 text-sm mb-1"></i>
+          <span class="text-[10px] text-slate-400 font-medium">Display</span>
+          <span id="modal-projector" class="text-xs font-bold text-slate-200">Projector</span>
+        </div>
+      </div>
+
+      <!-- "CALL THE SQUAD" Social Action Buttons -->
+      <div class="flex flex-col gap-2.5">
+        <button 
+          id="squad-whatsapp-btn"
+          onclick="shareToWhatsApp()"
+          class="w-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2.5 group">
+          <i class="fa-brands fa-whatsapp text-2xl group-hover:scale-110 transition-transform"></i>
+          <span class="text-sm tracking-wide">Call the Squad on WhatsApp</span>
+        </button>
+
+        <button 
+          onclick="copyInviteLink()"
+          class="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-2.5 rounded-xl border border-slate-700/80 text-xs transition flex items-center justify-center gap-2">
+          <i class="fa-regular fa-copy text-indigo-400"></i>
+          <span>Copy Direct Invite Text & Link</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- TIMETABLE SIMULATOR MODAL -->
+  <div id="timetable-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4 z-50">
+    <div class="glass-modal max-w-md w-full rounded-3xl p-6 relative border border-slate-700/60 shadow-2xl">
+      <button onclick="toggleTimetableModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+        <i class="fa-solid fa-xmark text-lg"></i>
+      </button>
+
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+          <i class="fa-solid fa-sliders"></i>
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-white">Timetable Simulator</h3>
+          <p class="text-xs text-slate-400">Toggle room availability to test dynamic status updates</p>
+        </div>
+      </div>
+
+      <div class="max-h-72 overflow-y-auto pr-1 space-y-2 mb-5" id="simulator-room-list">
+        <!-- Injected via JavaScript -->
+      </div>
+
+      <button onclick="toggleTimetableModal()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-xl text-xs transition">
+        Apply & Return to Map
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /* Global Application State & Room Dataset */
+    let isIsometric = true;
+    let activeFloorTab = 0;
+    let selectedRoomId = null;
+    let timerInterval = null;
+
+    // Master Room Database
+    const roomsData = [
+      { 
+        id: "001", name: "IST 001", floor: 0, wing: "Wing A", ac: true, capacity: 60, sockets: true, projector: true,
+        isFree: true, freeUntil: getFutureTime(1, 45), nextClass: "In 1h 45m (CS201 Data Structures)" 
+      },
+      { 
+        id: "002", name: "IST 002", floor: 0, wing: "Wing B", ac: false, capacity: 40, sockets: true, projector: false,
+        isFree: false, freeUntil: getFutureTime(0, 0), nextClass: "Now (MA102 Calculus Lecture)" 
+      },
+      { 
+        id: "003", name: "IST 003", floor: 0, wing: "Wing B", ac: true, capacity: 75, sockets: true, projector: true,
+        isFree: true, freeUntil: getFutureTime(0, 12), nextClass: "In 12m (EC301 Digital Electronics)" 
+      },
+      { 
+        id: "101", name: "IST 101", floor: 1, wing: "Wing A", ac: true, capacity: 50, sockets: true, projector: true,
+        isFree: true, freeUntil: getFutureTime(2, 30), nextClass: "In 2h 30m (AI Fundamentals)" 
+      },
+      { 
+        id: "102", name: "IST 102", floor: 1, wing: "Wing A", ac: false, capacity: 35, sockets: false, projector: false,
+        isFree: true, freeUntil: getFutureTime(0, 45), nextClass: "In 45m (Physics Mechanics Lab)" 
+      },
+      { 
+        id: "103", name: "IST 103", floor: 1, wing: "Wing B", ac: true, capacity: 90, sockets: true, projector: true,
+        isFree: false, freeUntil: getFutureTime(0, 0), nextClass: "Now (EE101 Circuit Theory)" 
+      },
+      { 
+        id: "509", name: "IST 509", floor: 5, wing: "Wing C", ac: true, capacity: 80, sockets: true, projector: true,
+        isFree: true, freeUntil: getFutureTime(2, 15), nextClass: "In 2h 15m (Web Architecture)" 
+      },
+      { 
+        id: "510", name: "IST 510", floor: 5, wing: "Wing C", ac: false, capacity: 45, sockets: true, projector: true,
+        isFree: false, freeUntil: getFutureTime(0, 0), nextClass: "Now (Operating Systems)" 
+      },
+      { 
+        id: "511", name: "IST 511", floor: 5, wing: "Wing D", ac: true, capacity: 100, sockets: true, projector: true,
+        isFree: true, freeUntil: getFutureTime(0, 10), nextClass: "In 10m (Cyber Security Lab)" 
+      }
+    ];
+
+    // Helper: Compute dynamic future timestamps for mock testing
+    function getFutureTime(hoursAhead, minutesAhead) {
+      const d = new Date();
+      d.setHours(d.getHours() + hoursAhead);
+      d.setMinutes(d.getMinutes() + minutesAhead);
+      return d.toISOString();
+    }
+
+    // Helper: Calculate seconds remaining from ISO timestamp
+    function getSecondsRemaining(isoTimestamp) {
+      const target = new Date(isoTimestamp).getTime();
+      const now = new Date().getTime();
+      return Math.max(0, Math.floor((target - now) / 1000));
+    }
+
+    // Initialization
+    document.addEventListener("DOMContentLoaded", () => {
+      startLiveClock();
+      renderRooms();
+      buildSimulatorList();
+    });
+
+    // Real-time Header Clock
+    function startLiveClock() {
+      const clockEl = document.getElementById("live-system-clock");
+      setInterval(() => {
+        const now = new Date();
+        clockEl.innerText = now.toLocaleTimeString();
+      }, 1000);
+    }
+
+    // Render Map Nodes for Active Floor
+    function renderRooms(customList = null) {
+      const list = customList || getFilteredRooms();
+      const grid = document.getElementById("room-grid");
+      grid.innerHTML = "";
+
+      // Filter rooms for active tab floor
+      const floorRooms = list.filter(r => r.floor === activeFloorTab);
+
+      if (floorRooms.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-full py-16 text-center text-slate-400 bg-slate-900/50 rounded-2xl border border-slate-800">
+            <i class="fa-solid fa-ghost text-3xl mb-2 text-slate-600"></i>
+            <p class="text-sm font-medium">No matching rooms found on this floor.</p>
+          </div>`;
+        return;
+      }
+
+      floorRooms.forEach(room => {
+        const secsLeft = getSecondsRemaining(room.freeUntil);
+        const minsLeft = Math.floor(secsLeft / 60);
+
+        let statusType = "BUSY";
+        if (room.isFree) {
+          statusType = minsLeft <= 15 ? "SOON" : "FREE";
+        }
+
+        // Dynamic Status Color Logic
+        let cardBg = "", borderColor = "", badgeBg = "", statusText = "", shadowClass = "";
+
+        if (statusType === "FREE") {
+          cardBg = "bg-slate-900/80 hover:bg-slate-800/90";
+          borderColor = "border-emerald-500/40 hover:border-emerald-400";
+          badgeBg = "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+          statusText = "Available";
+          shadowClass = "glow-emerald";
+        } else if (statusType === "SOON") {
+          cardBg = "bg-slate-900/80 hover:bg-slate-800/90";
+          borderColor = "border-amber-500/40 hover:border-amber-400";
+          badgeBg = "bg-amber-500/10 text-amber-400 border-amber-500/30";
+          statusText = `Free (${minsLeft}m left)`;
+          shadowClass = "glow-amber";
+        } else {
+          cardBg = "bg-slate-900/60 hover:bg-slate-800/70 opacity-80";
+          borderColor = "border-rose-500/30 hover:border-rose-400";
+          badgeBg = "bg-rose-500/10 text-rose-400 border-rose-500/30";
+          statusText = "Occupied";
+          shadowClass = "glow-rose";
+        }
+
+        const isSelected = selectedRoomId === room.id ? "selected ring-2 ring-indigo-500" : "";
+
+        const roomCardHtml = `
+          <div 
+            onclick="openRoomModal('${room.id}')"
+            class="iso-room-card ${cardBg} ${borderColor} ${shadowClass} ${isSelected} border rounded-2xl p-5 cursor-pointer relative transition-all duration-300 flex flex-col justify-between group shadow-lg">
+            
+            <div>
+              <div class="flex justify-between items-start mb-3">
+                <div>
+                  <h3 class="text-xl font-extrabold text-white tracking-wide group-hover:text-indigo-300 transition-colors">${room.name}</h3>
+                  <span class="text-[11px] text-slate-400 font-medium">${room.wing}</span>
+                </div>
+                <span class="px-2.5 py-1 text-xs font-bold rounded-full border ${badgeBg} flex items-center gap-1.5">
+                  <span class="w-1.5 h-1.5 rounded-full ${statusType === 'FREE' ? 'bg-emerald-400' : statusType === 'SOON' ? 'bg-amber-400 animate-ping' : 'bg-rose-400'}"></span>
+                  ${statusText}
+                </span>
+              </div>
+
+              <!-- Key Features Icons -->
+              <div class="flex items-center gap-3 text-xs text-slate-300 mb-4 py-2 border-y border-slate-800/80">
+                <span class="flex items-center gap-1" title="AC Status">
+                  <i class="fa-solid fa-snowflake ${room.ac ? 'text-sky-400' : 'text-slate-600'}"></i>
+                  ${room.ac ? 'AC' : 'Non-AC'}
+                </span>
+                <span class="flex items-center gap-1" title="Seating Capacity">
+                  <i class="fa-solid fa-users text-indigo-400"></i>
+                  ${room.capacity} seats
+                </span>
+                ${room.sockets ? `
+                <span class="flex items-center gap-1" title="Power Sockets">
+                  <i class="fa-solid fa-plug text-emerald-400"></i> Power
+                </span>` : ''}
+              </div>
+            </div>
+
+            <!-- Footer Quick Detail -->
+            <div class="flex justify-between items-center text-xs text-slate-400 pt-1">
+              <span class="font-mono text-[11px]">
+                ${room.isFree ? 'Free until: ' + new Date(room.freeUntil).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Occupied now'}
+              </span>
+              <span class="text-indigo-400 font-bold group-hover:translate-x-1 transition-transform flex items-center gap-1">
+                Inspect <i class="fa-solid fa-chevron-right text-[10px]"></i>
+              </span>
+            </div>
+          </div>
+        `;
+
+        grid.innerHTML += roomCardHtml;
+      });
+    }
+
+    // Floor Switching
+    function switchFloorTab(floorNumber) {
+      activeFloorTab = floorNumber;
+
+      document.querySelectorAll('.floor-tab').forEach(btn => {
+        btn.className = "floor-tab flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center gap-2";
+      });
+
+      const activeBtn = document.getElementById(`tab-floor-${floorNumber}`);
+      if (activeBtn) {
+        activeBtn.className = "floor-tab flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 bg-brand-600 text-white shadow-md";
+      }
+
+      const labels = { 0: "Ground Floor Blueprint", 1: "1st Floor Blueprint", 5: "5th Floor Blueprint" };
+      document.getElementById("active-floor-label").innerText = labels[floorNumber] || "Floor Plan";
+
+      renderRooms();
+    }
+
+    // Toggle 3D Isometric View vs Flat Grid
+    function toggleIsometricView() {
+      const viewport = document.getElementById("map-viewport");
+      const btnText = document.getElementById("iso-btn-text");
+
+      isIsometric = !isIsometric;
+
+      if (isIsometric) {
+        viewport.classList.add("iso-mode");
+        btnText.innerText = "3D View: On";
+        showToast("Switched to 3D Isometric Mode", "info");
+      } else {
+        viewport.classList.remove("iso-mode");
+        btnText.innerText = "3D View: Off";
+        showToast("Switched to 2D Blueprint Grid", "info");
+      }
+    }
+
+    // Advanced AI Query Parser
+    function handleAISearch() {
+      const query = document.getElementById("ai-search-input").value.toLowerCase().trim();
+      if (!query) {
+        renderRooms();
+        return;
+      }
+
+      const results = roomsData.filter(room => {
+        let matches = true;
+
+        if ((query.includes("ground") || query.includes("floor 0")) && room.floor !== 0) matches = false;
+        if ((query.includes("1st") || query.includes("first") || query.includes("floor 1")) && room.floor !== 1) matches = false;
+        if ((query.includes("5th") || query.includes("fifth") || query.includes("floor 5")) && room.floor !== 5) matches = false;
+
+        if (query.includes("ac") && !query.includes("non-ac") && !room.ac) matches = false;
+        if (query.includes("non-ac") && room.ac) matches = false;
+
+        if ((query.includes("free") || query.includes("available")) && !room.isFree) matches = false;
+        if (query.includes("plug") || query.includes("socket") || query.includes("power")) {
+          if (!room.sockets) matches = false;
+        }
+
+        return matches;
+      });
+
+      // Auto switch floor if query explicitly mentions a single floor
+      if (query.includes("ground") || query.includes("floor 0")) switchFloorTab(0);
+      else if (query.includes("1st") || query.includes("first")) switchFloorTab(1);
+      else if (query.includes("5th") || query.includes("fifth")) switchFloorTab(5);
+
+      renderRooms(results);
+      showToast(`AI Search returned ${results.length} room match(es)`, "indigo");
+    }
+
+    // Apply Filter Dropdowns
+    function applyFilters() {
+      renderRooms();
+    }
+
+    function getFilteredRooms() {
+      const floorVal = document.getElementById("filter-floor").value;
+      const acVal = document.getElementById("filter-ac").value;
+      const capVal = parseInt(document.getElementById("filter-capacity").value);
+      const statusVal = document.getElementById("filter-status").value;
+
+      return roomsData.filter(room => {
+        if (floorVal !== "ALL" && room.floor.toString() !== floorVal) return false;
+        if (acVal === "AC" && !room.ac) return false;
+        if (acVal === "NON_AC" && room.ac) return false;
+        if (room.capacity < capVal) return false;
+
+        const secs = getSecondsRemaining(room.freeUntil);
+        const mins = Math.floor(secs / 60);
+
+        if (statusVal === "FREE" && (!room.isFree || mins <= 15)) return false;
+        if (statusVal === "SOON" && (!room.isFree || mins > 15)) return false;
+        if (statusVal === "BUSY" && room.isFree) return false;
+
+        return true;
+      });
+    }
+
+    // Inspect Room Modal & Ticking Countdown
+    function openRoomModal(roomId) {
+      selectedRoomId = roomId;
+      const room = roomsData.find(r => r.id === roomId);
+      if (!room) return;
+
+      document.getElementById("modal-room-name").innerText = room.name;
+      document.getElementById("modal-floor-text").innerText = `Floor ${room.floor} • ${room.wing}`;
+      document.getElementById("modal-room-type").innerText = room.ac ? "AC Classroom" : "Standard Classroom";
+      document.getElementById("modal-ac-status").innerText = room.ac ? "AC" : "Non-AC";
+      document.getElementById("modal-capacity").innerText = `${room.capacity}`;
+      document.getElementById("modal-sockets").innerText = room.sockets ? "Yes" : "No";
+      document.getElementById("modal-projector").innerText = room.projector ? "Projector" : "Whiteboard";
+      document.getElementById("modal-next-class").innerText = `Next Class: ${room.nextClass}`;
+
+      const banner = document.getElementById("modal-banner");
+
+      if (room.isFree) {
+        banner.className = "w-full h-36 rounded-2xl mb-5 flex flex-col items-center justify-center relative border border-emerald-500/50 bg-gradient-to-b from-emerald-950/80 to-slate-900 shadow-inner";
+        document.getElementById("modal-timer-label").innerText = "TIME REMAINING FREE";
+        document.getElementById("modal-until-time").innerText = `Until ${new Date(room.freeUntil).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+      } else {
+        banner.className = "w-full h-36 rounded-2xl mb-5 flex flex-col items-center justify-center relative border border-rose-500/50 bg-gradient-to-b from-rose-950/80 to-slate-900 shadow-inner";
+        document.getElementById("modal-timer-label").innerText = "CURRENTLY OCCUPIED";
+        document.getElementById("modal-until-time").innerText = "Class in Progress";
+      }
+
+      startCountdownTimer(room);
+      document.getElementById("room-modal").classList.remove("hidden");
+    }
+
+    function closeModal() {
+      document.getElementById("room-modal").classList.add("hidden");
+      if (timerInterval) clearInterval(timerInterval);
+    }
+
+    // Ticking Countdown Function
+    function startCountdownTimer(room) {
+      if (timerInterval) clearInterval(timerInterval);
+
+      const timerDisplay = document.getElementById("modal-timer");
+      const progressBar = document.getElementById("modal-timer-bar");
+
+      function update() {
+        const totalSecs = getSecondsRemaining(room.freeUntil);
+
+        if (!room.isFree || totalSecs <= 0) {
+          timerDisplay.innerText = "00:00:00";
+          progressBar.style.width = "0%";
+          progressBar.className = "bg-rose-500 h-full rounded-full transition-all";
+          return;
+        }
+
+        const hrs = String(Math.floor(totalSecs / 3600)).padStart(2, '0');
+        const mins = String(Math.floor((totalSecs % 3600) / 60)).padStart(2, '0');
+        const secs = String(totalSecs % 60).padStart(2, '0');
+
+        timerDisplay.innerText = `${hrs}:${mins}:${secs}`;
+
+        // Progress calculation based on a max 2-hour window reference
+        const pct = Math.min(100, Math.max(0, (totalSecs / 7200) * 100));
+        progressBar.style.width = `${pct}%`;
+
+        if (totalSecs < 900) {
+          progressBar.className = "bg-gradient-to-r from-amber-500 to-rose-500 h-full rounded-full transition-all";
+        } else {
+          progressBar.className = "bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all";
+        }
+      }
+
+      update();
+      timerInterval = setInterval(update, 1000);
+    }
+
+    // "CALL THE SQUAD" WhatsApp Integration
+    function shareToWhatsApp() {
+      const room = roomsData.find(r => r.id === selectedRoomId);
+      if (!room) return;
+
+      const timeStr = new Date(room.freeUntil).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      const inviteUrl = window.location.href;
+      
+      const message = `📍 Heading to ${room.name} (Floor ${room.floor}). It's free until ${timeStr}! Come fast! Join link: ${inviteUrl}`;
+      const encodedMsg = encodeURIComponent(message);
+
+      window.open(`https://wa.me/?text=${encodedMsg}`, '_blank');
+      showToast("WhatsApp Squad Invite opened!", "emerald");
+    }
+
+    // One-click copy invitation text
+    function copyInviteLink() {
+      const room = roomsData.find(r => r.id === selectedRoomId);
+      if (!room) return;
+
+      const timeStr = new Date(room.freeUntil).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      const message = `📍 Heading to ${room.name} (Floor ${room.floor}). It's free until ${timeStr}! Come fast!`;
+
+      // Use document.execCommand fallback for iframe safety
+      const textArea = document.createElement("textarea");
+      textArea.value = message;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        showToast("Invite text copied to clipboard!", "emerald");
+      } catch (err) {
+        showToast("Unable to copy automatically.", "rose");
+      }
+      document.body.removeChild(textArea);
+    }
+
+    // Timetable Simulator Drawer
+    function toggleTimetableModal() {
+      const modal = document.getElementById("timetable-modal");
+      modal.classList.toggle("hidden");
+    }
+
+    function buildSimulatorList() {
+      const container = document.getElementById("simulator-room-list");
+      container.innerHTML = "";
+
+      roomsData.forEach(room => {
+        const itemHtml = `
+          <div class="flex items-center justify-between p-3 bg-slate-900 rounded-xl border border-slate-800 text-xs">
+            <div>
+              <span class="font-bold text-slate-200">${room.name}</span>
+              <span class="text-slate-500 ml-2">Floor ${room.floor}</span>
+            </div>
+            <button 
+              onclick="toggleRoomStatus('${room.id}')"
+              class="px-3 py-1 rounded-lg font-bold text-[11px] ${room.isFree ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'}">
+              Mark as ${room.isFree ? 'Occupied' : 'Free'}
+            </button>
+          </div>
+        `;
+        container.innerHTML += itemHtml;
+      });
+    }
+
+    function toggleRoomStatus(roomId) {
+      const room = roomsData.find(r => r.id === roomId);
+      if (room) {
+        room.isFree = !room.isFree;
+        if (room.isFree) {
+          room.freeUntil = getFutureTime(1, 30);
+        }
+        renderRooms();
+        buildSimulatorList();
+        showToast(`Updated status for ${room.name}`, "indigo");
+      }
+    }
+
+    // Toast Message System
+    function showToast(message, type = "indigo") {
+      const container = document.getElementById("toast-container");
+      const toast = document.createElement("div");
+
+      const colorMap = {
+        emerald: "bg-emerald-950/90 border-emerald-500/50 text-emerald-200",
+        indigo: "bg-indigo-950/90 border-indigo-500/50 text-indigo-200",
+        rose: "bg-rose-950/90 border-rose-500/50 text-rose-200",
+        info: "bg-slate-900/90 border-slate-700 text-slate-200"
+      };
+
+      toast.className = `px-4 py-3 rounded-xl border text-xs font-semibold shadow-xl flex items-center gap-2 backdrop-blur-md animate-bounce ${colorMap[type] || colorMap.indigo}`;
+      toast.innerHTML = `<i class="fa-solid fa-circle-info"></i> ${message}`;
+
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.5s ease';
+        setTimeout(() => toast.remove(), 500);
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
